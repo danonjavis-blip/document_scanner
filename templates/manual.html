@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Ручное указание углов</title>
+<style>
+  body { font-family: sans-serif; background: #f0f2f5; margin: 0; color: #222; }
+  .wrap { max-width: 1100px; margin: 20px auto; background: #fff; padding: 20px;
+          border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  canvas { max-width: 100%; border: 1px solid #ccc; cursor: crosshair; display: block; }
+  button { background: #2f6fed; color: #fff; border: 0; border-radius: 6px;
+           padding: 9px 16px; font-size: 14px; cursor: pointer; margin-top: 12px; }
+  button:disabled { background: #9db7ea; cursor: default; }
+  .gray { background: #888; }
+  .status { margin-left: 10px; color: #555; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>Укажите 4 угла листа</h2>
+  <p>Кликните мышкой по углам документа на фото (в любом порядке, порядок не важен).
+     После четырёх кликов нажмите «Сканировать».</p>
+  <canvas id="c"></canvas>
+  <div>
+    <button id="applyBtn" disabled>Сканировать</button>
+    <button class="gray" onclick="location.href='/'">Отмена</button>
+    <span id="status" class="status"></span>
+  </div>
+</div>
+
+<script>
+const name = {{ name|tojson }};
+const img = new Image();
+img.src = "/image/" + encodeURIComponent(name);
+
+const c = document.getElementById("c");
+const ctx = c.getContext("2d");
+let pts = [];   // координаты в пикселях ИСХОДНОГО изображения
+let scale = 1;
+
+img.onload = () => {
+  scale = Math.min(1, 1000 / img.width);
+  c.width = img.width * scale;
+  c.height = img.height * scale;
+  ctx.drawImage(img, 0, 0, c.width, c.height);
+};
+
+function redraw() {
+  ctx.drawImage(img, 0, 0, c.width, c.height);
+  ctx.strokeStyle = "lime";
+  ctx.fillStyle = "lime";
+  ctx.lineWidth = 2;
+  pts.forEach((p, i) => {
+    const x = p[0] * scale, y = p[1] * scale;
+    ctx.beginPath();
+    ctx.arc(x, y, 6, 0, 7);
+    ctx.fill();
+    ctx.fillStyle = "red";
+    ctx.font = "bold 18px sans-serif";
+    ctx.fillText(i + 1, x + 10, y - 10);
+    ctx.fillStyle = "lime";
+  });
+  if (pts.length === 4) {
+    ctx.beginPath();
+    pts.forEach((p, i) => {
+      const x = p[0] * scale, y = p[1] * scale;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    });
+    ctx.closePath();
+    ctx.stroke();
+  }
+}
+
+c.addEventListener("click", e => {
+  if (pts.length >= 4) return;
+  const r = c.getBoundingClientRect();
+  const x = (e.clientX - r.left) * (c.width / r.width) / scale;
+  const y = (e.clientY - r.top) * (c.height / r.height) / scale;
+  pts.push([Math.round(x), Math.round(y)]);
+  redraw();
+  if (pts.length === 4) document.getElementById("applyBtn").disabled = false;
+});
+
+document.getElementById("applyBtn").addEventListener("click", async () => {
+  const st = document.getElementById("status");
+  st.textContent = "Обработка...";
+  const r = await fetch("/manual/" + encodeURIComponent(name) + "/apply", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({points: pts})
+  });
+  if (r.ok) location.href = "/";
+  else st.textContent = "Ошибка обработки.";
+});
+
+// Heartbeat (сервер живёт, пока открыта страница)
+setInterval(() => fetch("/ping", {method: "POST"}).catch(() => {}), 4000);
+</script>
+</body>
+</html>

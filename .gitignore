@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Виртуальное окружение
+venv/
+.venv/
+
+# Личные данные: фото и сканы документов
+need_to_scan/
+scanned/
+
+# Логи и временные файлы
+scanner.log
+*.log
+*.swp
+*.swo
+
+# Редакторы
+.idea/
+.vscode/
+
+# Секреты
+.env

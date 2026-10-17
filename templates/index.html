@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Сканер документов</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: sans-serif; background: #f0f2f5; margin: 0; color: #222; }
+  h1 { padding: 16px 24px 0; margin: 0; font-size: 24px; }
+  .panel { background: #fff; margin: 16px 24px; padding: 16px 20px;
+           border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  h2 { margin: 0 0 12px; font-size: 18px; }
+  button, .btn { background: #2f6fed; color: #fff; border: 0; border-radius: 6px;
+                 padding: 9px 16px; font-size: 14px; cursor: pointer; }
+  button:hover, .btn:hover { background: #2459c4; }
+  button:disabled { background: #9db7ea; cursor: default; }
+  input[type=file] { margin-bottom: 10px; }
+  .status { color: #555; margin-left: 10px; font-size: 14px; }
+  #queue { color: #555; font-size: 14px; margin: 8px 0; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+  .card { border: 1px solid #ddd; border-radius: 8px; overflow: hidden; background: #fafafa; }
+  .card img { width: 100%; display: block; cursor: zoom-in; }
+  .card .name { font-size: 12px; padding: 6px 8px; word-break: break-all; color: #444; }
+  .card .actions { display: flex; gap: 6px; padding: 0 8px 8px; }
+  .card .actions button { flex: 1; padding: 6px 4px; font-size: 12px; }
+  .del { background: #d9534f; } .del:hover { background: #b92c28; }
+  ul#failList { padding-left: 20px; }
+  #lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.85);
+              z-index: 10; text-align: center; }
+  #lightbox img { max-width: 92vw; max-height: 92vh; margin-top: 4vh; }
+  #lightbox { cursor: zoom-out; }
+  .muted { color: #888; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>📄 Сканер документов</h1>
+
+<div class="panel">
+  <h2>1. Загрузите фотографии документов</h2>
+  <input type="file" id="fileInput" multiple accept=".jpg,.jpeg,.png,.heic,.pdf">
+  <span id="uploadStatus" class="status"></span>
+  <div id="queue"></div>
+  <br>
+  <button id="scanBtn">Сканировать всё</button>
+  <span id="scanStatus" class="status"></span>
+</div>
+
+<div class="panel">
+  <h2>Готовые сканы &nbsp;
+    <button onclick="downloadAll()">Скачать все архивом</button>
+  </h2>
+  <div id="grid"></div>
+  <p id="empty" class="muted" style="display:none">Пока нет готовых сканов.</p>
+</div>
+
+<div class="panel" id="failPanel" style="display:none">
+  <h2>⚠️ Не распознаны автоматически — укажите углы вручную</h2>
+  <ul id="failList"></ul>
+</div>
+
+<div id="lightbox" onclick="this.style.display='none'"><img id="lightImg"></div>
+
+<script>
+let state = {queue: [], scans: [], failures: []};
+
+async function refresh() {
+  state = await (await fetch("/state")).json();
+  render();
+}
+
+function render() {
+  // Очередь
+  document.getElementById("queue").innerHTML = state.queue.length
+    ? "В очереди на сканирование (" + state.queue.length + "): " + state.queue.join(", ")
+    : "<span class='muted'>Очередь пуста</span>";
+
+  // Сетка сканов
+  const grid = document.getElementById("grid");
+  grid.innerHTML = "";
+  document.getElementById("empty").style.display = state.scans.length ? "none" : "block";
+  for (const s of state.scans) {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML =
+      '<img src="/thumb/' + encodeURIComponent(s.thumb) + '" ' +
+           'onclick="showLight(this.src)" title="Увеличить">' +
+      '<div class="name">' + s.name + '</div>' +
+      '<div class="actions">' +
+        '<button onclick="downloadScan(\'' + s.name + '\')">Скачать</button>' +
+        '<button class="del" onclick="deleteScan(\'' + s.name + '\')">Удалить</button>' +
+      '</div>';
+    grid.appendChild(card);
+  }
+
+  // Неудачные
+  const fp = document.getElementById("failPanel");
+  const fl = document.getElementById("failList");
+  fl.innerHTML = "";
+  fp.style.display = state.failures.length ? "block" : "none";
+  for (const f of state.failures) {
+    const li = document.createElement("li");
+    li.innerHTML = f + ' &nbsp;<button onclick="openManual(\'' + f + '\')">Указать углы</button>';
+    fl.appendChild(li);
+  }
+}
+
+function showLight(src) {
+  document.getElementById("lightImg").src = src;
+  document.getElementById("lightbox").style.display = "block";
+}
+
+function downloadScan(name) {
+  const a = document.createElement("a");
+  a.href = "/download/" + encodeURIComponent(name);
+  a.download = name;
+  a.click();
+}
+
+async function deleteScan(name) {
+  if (!confirm("Удалить скан " + name + "?")) return;
+  await fetch("/delete/" + encodeURIComponent(name), {method: "POST"});
+  await refresh();
+}
+
+function downloadAll() { location.href = "/download_all"; }
+
+function openManual(name) {
+  location.href = "/manual/" + encodeURIComponent(name);
+}
+
+// --- Загрузка файлов ---
+document.getElementById("fileInput").addEventListener("change", async e => {
+  const files = [...e.target.files];
+  e.target.value = "";
+  if (!files.length) return;
+  await doUpload(files, false);
+  await refresh();
+});
+
+async function doUpload(files, overwrite) {
+  const fd = new FormData();
+  files.forEach(f => fd.append("files", f));
+  if (overwrite) fd.append("overwrite", "1");
+  const st = document.getElementById("uploadStatus");
+  st.textContent = "Загрузка...";
+  const r = await (await fetch("/upload", {method: "POST", body: fd})).json();
+  st.textContent = "Загружено: " + (r.saved.length || 0);
+  if (r.conflicts.length) {
+    if (confirm("Файлы уже есть в очереди и будут перезаписаны:\n" +
+                r.conflicts.join("\n") + "\n\nПродолжить?")) {
+      const again = files.filter(f => r.conflicts.includes(f.name));
+      await doUpload(again, true);
+    }
+  }
+  if (r.errors.length) alert(r.errors.join("\n"));
+}
+
+// --- Сканирование ---
+document.getElementById("scanBtn").addEventListener("click", async () => {
+  if (!state.queue.length) { alert("Очередь пуста — сначала загрузите фото."); return; }
+  if (!confirm("Сканировать все файлы из очереди (" + state.queue.length + " шт.)?")) return;
+  const st = document.getElementById("scanStatus");
+  st.textContent = "Сканирование...";
+  const r = await (await fetch("/scan_all", {method: "POST"})).json();
+  let msg = "Готово сканов: " + r.ok;
+  if (r.failed.length) msg += "\nНе распознаны: " + r.failed.join(", ");
+  st.textContent = "";
+  alert(msg);
+  await refresh();
+});
+
+// Heartbeat: пока страница открыта, сервер живёт
+setInterval(() => fetch("/ping", {method: "POST"}).catch(() => {}), 4000);
+
+refresh();
+</script>
+</body>
+</html>

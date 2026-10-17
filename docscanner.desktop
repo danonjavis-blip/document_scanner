@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Сканер документов
+Comment=Локальный сканер документов
+Exec=bash "/home/daniel/scanner_project/run_scanner.sh"
+Icon=scanner
+Terminal=false
+Categories=Utility;
+Keywords=scanner;сканер;документы;
