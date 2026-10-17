@@ -1,0 +1,7 @@
+flask
+pymupdf
+pillow
+scikit-image
+opencv-python
+imutils
+pillow-heif

@@ -33,6 +33,7 @@
    - Сканы сохраняются в PDF в папку scanned/ проекта.
    - Оригиналы после успешного сканирования переносятся
      в need_to_scan/done/.
+6. pip install -r requirements.txt
 
 СТРУКТУРА
    scanner_app.py    — веб-сервер (Flask)
